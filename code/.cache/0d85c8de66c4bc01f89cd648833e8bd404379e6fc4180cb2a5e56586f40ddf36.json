@@ -1,0 +1,1 @@
+{"valid_image": false, "usable_image_ids": [], "risk_flags": ["text_instruction_present"], "reason": "One image contains text instructions that are not allowed."}

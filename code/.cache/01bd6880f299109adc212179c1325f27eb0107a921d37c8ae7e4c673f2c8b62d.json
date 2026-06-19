@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_1"], "risk_flags": ["damage_not_visible", "non_original_image"], "reason": "Image 1 is usable, but image 2 appears to be a stock photo and does not show the damage."}

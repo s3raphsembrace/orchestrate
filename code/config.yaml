@@ -5,13 +5,14 @@
 # pipeline can be re-tuned without touching code.
 
 models:
-  # Stage 1 is a cheap, fast validity gate run on EVERY image. Use the
-  # cheapest capable vision model.
-  stage1: "gemini-2.5-flash-lite"
-  # Stage 2 is the expensive full claim analysis, only run when Stage 1
-  # passes (or is marginal). Flash is a good cost/quality balance; switch to
-  # "gemini-2.5-pro" if accuracy on the sample set demands it.
-  stage2: "gemini-2.5-flash"
+  # Both stages run on gemini-3.1-flash-lite: on the free tier it has by far the
+  # highest daily budget (500 RPD vs ~20 for the 2.5/3.x Flash tiers) and 15 RPM
+  # / 250K TPM, so the full two-stage pipeline (≈2 calls/claim) fits comfortably.
+  # Stage 1 is the cheap validity gate; Stage 2 is the full analysis.
+  stage1: "gemini-3.1-flash-lite"
+  # Bump Stage 2 to a stronger model (e.g. gemini-3.5-flash or gemini-2.5-pro)
+  # only if the sample-set accuracy demands it AND you have the quota for it.
+  stage2: "gemini-3.1-flash-lite"
 
 generation:
   # Deterministic outputs make evaluation reproducible and caching effective.
@@ -25,6 +26,11 @@ generation:
 # ---- override here if Google changes pricing. Used only by the cost  ----
 # ---- estimator in the operational report, never by the pipeline.     ----
 pricing:
+  # Placeholder for gemini-3.1-flash-lite (flash-lite class). Update with the
+  # real published rate before quoting cost; used only by the report estimator.
+  gemini-3.1-flash-lite:
+    input_per_mtok: 0.10
+    output_per_mtok: 0.40
   gemini-2.5-flash-lite:
     input_per_mtok: 0.10
     output_per_mtok: 0.40
@@ -56,10 +62,16 @@ runtime:
   # the number of model calls — useful when quota is tight — at the cost of the
   # cheap quality/authenticity gate. Quality flags then come from Stage 2 only.
   single_stage: false
+  # Multi-claim batching: pack this many SAME-object claims into one model call.
+  # >1 trades scarce free-tier requests/day for abundant tokens/min — e.g. 44
+  # claims at batch_size 4 is ~12 requests instead of 44+. Set 1 to disable.
+  # (Batched mode is analysis-only; the Stage-1 gate is implicitly skipped.)
+  batch_size: 1
   # Per-model minimum seconds between requests, enforced across all workers.
-  # 7.0s ~= 8.5 requests/min/model, under the typical free-tier 10 RPM cap for
-  # gemini-2.5-flash. Lower it (or set 0) on a paid tier for full speed.
-  min_request_interval_s: 7.0
+  # 4.5s ~= 13 requests/min, under the 15 RPM cap for gemini-3.1-flash-lite.
+  # Both stages share this one model pool, so all calls are spaced against each
+  # other. Lower it (or set 0) on a paid tier for full speed.
+  min_request_interval_s: 4.5
 
 cache:
   enabled: true

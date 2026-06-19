@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_1"], "risk_flags": ["text_instruction_present"], "reason": "Image 1 is usable, but image 2 contains a text instruction attempting to influence the review."}

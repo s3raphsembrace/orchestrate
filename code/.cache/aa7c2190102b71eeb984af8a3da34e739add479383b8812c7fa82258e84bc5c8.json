@@ -1,0 +1,1 @@
+{"valid_image": false, "usable_image_ids": [], "risk_flags": ["text_instruction_present", "possible_manipulation"], "reason": "The images contain manipulated text instructions attempting to influence the claim review process."}

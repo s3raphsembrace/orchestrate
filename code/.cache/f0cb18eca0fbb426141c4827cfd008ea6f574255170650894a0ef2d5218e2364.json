@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_1"], "risk_flags": ["wrong_angle"], "reason": "The first image clearly shows the damage, while the second image is an extreme close-up that does not provide context for the damage."}

@@ -25,7 +25,7 @@ from .cache import ResponseCache
 from .evidence import EvidenceRequirements
 from .gemini_client import GeminiClient, Usage, load_and_prepare_image
 from .history import UserHistory
-from .prompts import build_stage1_prompt, build_stage2_prompt
+from .prompts import build_stage1_prompt, build_stage2_prompt, build_batch_prompt
 from .schema import OUTPUT_COLUMNS, normalize_record, normalize_risk_flags
 
 
@@ -177,17 +177,27 @@ class Pipeline:
         usable_blobs = [b for iid, b in zip(ids, blobs) if iid in set(usable_ids)] or blobs
         s2 = self._call(self.config.stage2_model, s2_prompt, usable_blobs,
                         gen["stage2_max_output_tokens"])
+        return self._finalize_from_s2(
+            row, all_ids, ids, missing, user_id, claim_object,
+            s2, s1_flags, s1_valid, usable_ids,
+        )
 
-        merged_flags = list(dict.fromkeys(s1_flags + [str(f) for f in (s2.get("risk_flags") or [])]))
+    # -- merge model output + deterministic flags into a final row ----------
+    def _finalize_from_s2(self, row, all_ids, ids, missing, user_id, claim_object,
+                          s2, s1_flags, s1_valid, usable_ids) -> Dict[str, str]:
+        s2 = s2 or {}
+        merged_flags = list(dict.fromkeys(
+            [str(f) for f in (s1_flags or [])]
+            + [str(f) for f in (s2.get("risk_flags") or [])]
+        ))
         if missing:
             merged_flags.append("cropped_or_obstructed")
         # Propagate the history file's own risk tokens verbatim (exact signal).
         for hf in self.history.risk_flags(user_id):
             if hf not in merged_flags:
                 merged_flags.append(hf)
-        # low-trust signals => ask for a human. Any of these implies a manual
-        # review is warranted; user_history_risk is included because in the
-        # labeled data it always co-occurs with manual_review_required.
+        # low-trust signals => ask for a human. user_history_risk is included
+        # because in the labeled data it always co-occurs with manual review.
         if any(f in merged_flags for f in MANUAL_REVIEW_TRIGGERS) \
                 and "manual_review_required" not in merged_flags:
             merged_flags.append("manual_review_required")
@@ -232,6 +242,19 @@ class Pipeline:
 
     # -- batch runner ------------------------------------------------------
     def run_batch(self, rows: List[Dict[str, str]], progress=None) -> List[Dict[str, str]]:
+        """Dispatch: per-claim (default) or multi-claim-per-request batching.
+
+        Set runtime.batch_size > 1 to pack several same-object claims into one
+        model call. That trades the scarce free-tier requests-per-day budget for
+        the abundant tokens-per-minute budget: 44 claims at batch_size 4 is ~12
+        requests instead of 44+, which fits under a ~20 RPD cap.
+        """
+        batch_size = int(self.config.runtime.get("batch_size", 1) or 1)
+        if batch_size > 1:
+            return self._run_grouped_batches(rows, batch_size, progress)
+        return self._run_unbatched(rows, progress)
+
+    def _run_unbatched(self, rows, progress=None) -> List[Dict[str, str]]:
         workers = self.config.runtime["max_workers"]
         results: List[Optional[Dict[str, str]]] = [None] * len(rows)
         with ThreadPoolExecutor(max_workers=workers) as ex:
@@ -245,6 +268,93 @@ class Pipeline:
                 if progress is not None:
                     progress.update(1)
         return [r for r in results if r is not None]
+
+    # -- multi-claim batching (same-object claims per request) -------------
+    def _run_grouped_batches(self, rows, batch_size, progress=None) -> List[Dict[str, str]]:
+        results: List[Optional[Dict[str, str]]] = [None] * len(rows)
+        prepared: Dict[int, tuple] = {}
+        groups: Dict[str, List[int]] = {}
+
+        for i, row in enumerate(rows):
+            user_id = row.get("user_id", "")
+            claim_object = str(row.get("claim_object", "")).strip().lower()
+            user_claim = row.get("user_claim", "")
+            image_paths = row.get("image_paths", "")
+            all_ids = [image_id_from_path(p) for p in split_image_paths(image_paths)]
+            try:
+                ids, blobs, missing = self._load_images(split_image_paths(image_paths))
+            except Exception as e:
+                results[i] = self._error_row(row, str(e))
+                if progress is not None:
+                    progress.update(1)
+                continue
+            if not blobs:  # nothing to send to the model
+                results[i] = self._finalize(
+                    row, all_ids,
+                    valid_image=False, evidence_met=False,
+                    evidence_reason="No usable image files were found for this claim.",
+                    issue_type="unknown", object_part="unknown",
+                    claim_status="not_enough_information",
+                    justification="No images available to review.",
+                    supporting_ids="none", severity="unknown",
+                    risk_flags=["cropped_or_obstructed"] if missing else [],
+                    user_id=user_id, claim_object=claim_object,
+                )
+                if progress is not None:
+                    progress.update(1)
+                continue
+            prepared[i] = (ids, blobs, missing, all_ids, user_id, claim_object, user_claim)
+            groups.setdefault(claim_object, []).append(i)
+
+        for claim_object, idxs in groups.items():
+            for c in range(0, len(idxs), batch_size):
+                self._process_chunk(claim_object, idxs[c:c + batch_size],
+                                    prepared, rows, results, progress)
+
+        return [r for r in results if r is not None]
+
+    def _process_chunk(self, claim_object, chunk, prepared, rows, results, progress):
+        gen = self.config.generation
+        payload, blobs_all, labels = [], [], []
+        for n, i in enumerate(chunk):
+            ids, blobs, missing, all_ids, user_id, _co, user_claim = prepared[i]
+            label = f"C{n + 1}"
+            labels.append(label)
+            payload.append({"label": label, "user_claim": user_claim,
+                            "history": self.history.summary(user_id),
+                            "image_ids": ids})
+            blobs_all.extend(blobs)
+
+        prompt = build_batch_prompt(claim_object, payload)
+        try:
+            parsed = self._call(self.config.stage2_model, prompt, blobs_all,
+                                gen["stage2_max_output_tokens"] * max(1, len(chunk)))
+        except Exception as e:  # whole chunk failed -> per-row error rows
+            for i in chunk:
+                results[i] = self._error_row(rows[i], str(e))
+                if progress is not None:
+                    progress.update(1)
+            return
+
+        res_list = parsed.get("results") if isinstance(parsed, dict) else parsed
+        by_label: Dict[str, dict] = {}
+        if isinstance(res_list, list):
+            for n, item in enumerate(res_list):
+                if not isinstance(item, dict):
+                    continue
+                lab = item.get("label") or (labels[n] if n < len(labels) else None)
+                if lab:
+                    by_label[lab] = item
+
+        for n, i in enumerate(chunk):
+            ids, blobs, missing, all_ids, user_id, claim_obj, _uc = prepared[i]
+            s2 = by_label.get(labels[n], {})
+            results[i] = self._finalize_from_s2(
+                rows[i], all_ids, ids, missing, user_id, claim_obj,
+                s2, s1_flags=[], s1_valid=True, usable_ids=ids,
+            )
+            if progress is not None:
+                progress.update(1)
 
     def _error_row(self, row, msg: str) -> Dict[str, str]:
         all_ids = [image_id_from_path(p) for p in split_image_paths(row.get("image_paths", ""))]

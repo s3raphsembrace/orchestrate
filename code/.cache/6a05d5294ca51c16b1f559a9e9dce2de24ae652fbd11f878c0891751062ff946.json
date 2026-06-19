@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_1"], "risk_flags": ["non_original_image"], "reason": "Image 2 contains a watermark, making it non-original, but image 1 is usable."}

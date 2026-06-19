@@ -1,0 +1,1 @@
+{"valid_image": false, "usable_image_ids": [], "risk_flags": ["possible_manipulation", "text_instruction_present"], "reason": "The images appear to be AI-generated and contain explicit prompt-injection text instructions."}

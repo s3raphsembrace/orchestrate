@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_1"], "risk_flags": ["damage_not_visible", "cropped_or_obstructed"], "reason": "The first image shows no visible damage, and the second image appears to be a digitally manipulated or stock-style image with an obstructed screen."}

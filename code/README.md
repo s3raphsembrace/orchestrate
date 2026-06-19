@@ -116,6 +116,30 @@ pricing assumptions are in the evaluation report.
 
 ---
 
+## Running under tight rate limits (free tier)
+
+Free-tier Gemini caps **requests per day** (RPD), not just per minute — and the
+two-stage design issues 2 calls/claim, which can blow a low daily cap. The
+pipeline has three levers in `config.yaml`, in order of impact:
+
+- **`batch_size: 4`** — pack several same-object claims into ONE request. This
+  trades the scarce requests-per-day budget for the abundant tokens-per-minute
+  budget. The full 44-claim test set becomes **~13 requests** instead of 88.
+  Batched mode is analysis-only (the Stage-1 gate is skipped). Highest-impact
+  lever for RPD-limited accounts.
+- **`single_stage: true`** — skip the gate, one call per claim (~halves calls).
+- **`min_request_interval_s`** — per-model spacing to stay under the RPM cap.
+
+You can also point `models.stage2` at `gemini-2.5-flash-lite` to use the
+higher-limit model pool. Because generation is deterministic and disk-cached, a
+run that 429s partway **resumes on re-run** — completed claims (or whole batches)
+are served from cache and only the failed ones re-call.
+
+Example (free-tier-friendly): set `batch_size: 4` in `config.yaml`, then
+`python main.py`.
+
+---
+
 ## Notes
 
 - Output conforms to the exact column order in `problem_statement.md`; all

@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_1"], "risk_flags": ["text_instruction_present"], "reason": "The image is clear and usable, but contains instructional text overlays."}

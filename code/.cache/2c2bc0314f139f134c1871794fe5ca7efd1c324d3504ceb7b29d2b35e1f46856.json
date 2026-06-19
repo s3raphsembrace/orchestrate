@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_1", "img_2"], "risk_flags": ["damage_not_visible"], "reason": "Image 3 does not show any damage and is a close-up of a headlight, while images 1 and 2 are usable."}

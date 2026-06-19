@@ -1,0 +1,1 @@
+{"valid_image": false, "usable_image_ids": [], "risk_flags": ["low_light_or_glare", "wrong_angle", "damage_not_visible"], "reason": "The first image is too dark and the angle does not clearly show the damage, while the second image shows the contents of the box but not the exterior damage."}
