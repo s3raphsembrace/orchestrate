@@ -41,14 +41,25 @@ pricing:
 
 # ---- Concurrency / rate-limit safety -------------------------------------
 runtime:
-  max_workers: 4            # parallel claims in flight
-  max_images_per_claim: 6   # hard cap to bound cost on pathological rows
-  # Downscale long edge before upload. Smaller images = fewer image tokens
-  # and faster uploads, with negligible loss for damage detection.
-  image_max_long_edge_px: 1024
-  # Stage-1 short-circuit: if the gate is this confident the image is
-  # unusable, skip Stage 2 entirely.
+  # Free tier: keep this low. The per-model rate limiter below is what actually
+  # governs throughput, so 1-2 workers is plenty. Raise on a paid tier.
+  max_workers: 2            # parallel claims in flight
+  max_images_per_claim: 4   # hard cap to bound cost/tokens on pathological rows
+  # Downscale long edge before upload. 768px keeps each image to a single
+  # Gemini image tile (~258 tokens) instead of being tiled into several, which
+  # roughly halves image-token usage vs. 1024px — negligible loss for damage.
+  image_max_long_edge_px: 768
+  # Stage-1 short-circuit: if the gate is confident the image is unusable, skip
+  # Stage 2 entirely (saves the expensive call on junk submissions).
   short_circuit_on_invalid: true
+  # Skip the Stage-1 gate entirely and run only the analysis call. This ~halves
+  # the number of model calls — useful when quota is tight — at the cost of the
+  # cheap quality/authenticity gate. Quality flags then come from Stage 2 only.
+  single_stage: false
+  # Per-model minimum seconds between requests, enforced across all workers.
+  # 7.0s ~= 8.5 requests/min/model, under the typical free-tier 10 RPM cap for
+  # gemini-2.5-flash. Lower it (or set 0) on a paid tier for full speed.
+  min_request_interval_s: 7.0
 
 cache:
   enabled: true

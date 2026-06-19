@@ -10,17 +10,61 @@ import io
 import json
 import os
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
+
+# Best-effort: register an AVIF/HEIF decoder so PIL can read .avif test images
+# instead of silently dropping them. Either optional package works; if neither
+# is installed (and Pillow lacks native AVIF) the load simply fails gracefully.
+try:  # pip install pillow-avif-plugin
+    import pillow_avif  # noqa: F401
+except Exception:
+    try:  # pip install pillow-heif
+        from pillow_heif import register_heif_opener, register_avif_opener  # type: ignore
+        register_heif_opener()
+        try:
+            register_avif_opener()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
 from tenacity import (
     retry,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
 )
+
+
+class RateLimiter:
+    """Per-key minimum-interval throttle, shared across worker threads.
+
+    Spaces calls for a given key (here, the model name) at least
+    ``min_interval_s`` apart so the pipeline stays under the provider's
+    requests-per-minute ceiling instead of bursting into 429s. Each model has
+    its own quota pool, so we throttle per model rather than globally.
+    """
+
+    def __init__(self, min_interval_s: float):
+        self.min = max(0.0, float(min_interval_s or 0.0))
+        self._next: Dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, key: str) -> None:
+        if self.min <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            target = max(now, self._next.get(key, 0.0))
+            self._next[key] = target + self.min
+        delay = target - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
 
 
 @dataclass
@@ -71,6 +115,9 @@ class GeminiClient:
         self.config = config
         self.usage = usage
         self._client = None  # lazy init so dry-runs need no key
+        self.limiter = RateLimiter(
+            config.runtime.get("min_request_interval_s", 0.0)
+        )
 
     def _ensure_client(self):
         if self._client is None:
@@ -115,6 +162,9 @@ class GeminiClient:
             retry=retry_if_exception_type(Exception),
         )
         def _call():
+            # Throttle before every attempt (including retries) so a retry
+            # storm doesn't itself trip the rate limit.
+            self.limiter.wait(model)
             return client.models.generate_content(
                 model=model,
                 contents=parts,

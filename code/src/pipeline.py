@@ -125,7 +125,18 @@ class Pipeline:
                 user_id=user_id, claim_object=claim_object,
             )
 
-        # ---- STAGE 1: validity gate ----
+        # ---- STAGE 1: validity gate (skipped in single_stage mode) ----
+        single_stage = self.config.runtime.get("single_stage", False)
+        if single_stage:
+            # Halve model calls: trust all loaded images and let Stage 2 surface
+            # any quality flags itself.
+            s1_valid, s1_flags, usable_ids = True, [], ids
+            return self._run_stage2(
+                row, all_ids, ids, blobs, missing,
+                user_id, claim_object, user_claim,
+                s1_valid, s1_flags, usable_ids, gen,
+            )
+
         s1_prompt = build_stage1_prompt(claim_object, ids)
         s1 = self._call(self.config.stage1_model, s1_prompt, blobs,
                         gen["stage1_max_output_tokens"])
@@ -148,7 +159,15 @@ class Pipeline:
                 user_id=user_id, claim_object=claim_object,
             )
 
-        # ---- STAGE 2: full analysis ----
+        return self._run_stage2(
+            row, all_ids, ids, blobs, missing,
+            user_id, claim_object, user_claim,
+            s1_valid, s1_flags, usable_ids, gen,
+        )
+
+    # -- STAGE 2: full analysis (shared by both gated and single-stage paths) --
+    def _run_stage2(self, row, all_ids, ids, blobs, missing, user_id,
+                    claim_object, user_claim, s1_valid, s1_flags, usable_ids, gen):
         rubric = self.evidence.rubric_text(claim_object)
         hist = self.history.summary(user_id)
         s2_prompt = build_stage2_prompt(

@@ -2,5 +2,6 @@
 google-genai>=0.3.0      # Gemini API SDK (google-genai, the current unified SDK)
 PyYAML>=6.0
 Pillow>=10.0.0           # image loading / light validation
+pillow-avif-plugin>=1.4.0  # decode AVIF images (several test images are AVIF)
 tenacity>=8.2.0          # retry/backoff for API calls
 tqdm>=4.66.0             # progress bars

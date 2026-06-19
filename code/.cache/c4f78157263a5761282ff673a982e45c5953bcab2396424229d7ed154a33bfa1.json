@@ -1,0 +1,1 @@
+{"valid_image": false, "usable_image_ids": [], "risk_flags": ["wrong_object", "damage_not_visible"], "reason": "The first image shows a damaged box but the contents are not visible, and the second image shows the contents of a package but not the package itself or any damage."}

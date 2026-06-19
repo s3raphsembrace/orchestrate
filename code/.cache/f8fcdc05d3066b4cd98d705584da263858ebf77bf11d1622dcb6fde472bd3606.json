@@ -1,0 +1,1 @@
+{"valid_image": true, "usable_image_ids": ["img_2"], "risk_flags": ["text_instruction_present"], "reason": "Image img_1 contains text instructions, but image img_2 is usable for damage review."}
