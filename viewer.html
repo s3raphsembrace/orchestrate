@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Evidence Review — Predictions Viewer</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --line:#2a2f3a;
+    --txt:#e6e9ef; --muted:#9aa3b2; --accent:#6ea8fe;
+    --green:#3fb950; --red:#f85149; --amber:#d29922; --grey:#6e7681; --violet:#bc8cff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+       background:var(--bg);color:var(--txt)}
+  header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
+         padding:12px 18px;display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+  h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.2px}
+  .sub{color:var(--muted);font-size:12px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-left:auto}
+  input,select,button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);
+       border-radius:7px;padding:6px 9px;font-size:13px;outline:none}
+  input:focus,select:focus{border-color:var(--accent)}
+  button{cursor:pointer}
+  button:hover{border-color:var(--accent)}
+  .stats{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:8px 12px;min-width:96px}
+  .stat .n{font-size:20px;font-weight:700}
+  .stat .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .wrap{padding:0 18px 60px}
+  table{border-collapse:collapse;width:100%;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+  th{position:sticky;top:62px;background:var(--panel2);font-size:11px;text-transform:uppercase;letter-spacing:.5px;
+     color:var(--muted);cursor:pointer;white-space:nowrap;z-index:2}
+  th:hover{color:var(--txt)}
+  th .arrow{opacity:.5;font-size:10px}
+  tr:hover td{background:rgba(110,168,254,.05)}
+  .thumbs{display:flex;gap:5px;flex-wrap:wrap;max-width:170px}
+  .thumbs img{width:50px;height:50px;object-fit:cover;border-radius:6px;border:1px solid var(--line);cursor:zoom-in;background:#000}
+  .thumbs img.support{border-color:var(--green);box-shadow:0 0 0 1px var(--green)}
+  .thumbs .miss{width:50px;height:50px;border-radius:6px;border:1px dashed var(--line);display:flex;
+       align-items:center;justify-content:center;color:var(--muted);font-size:9px;text-align:center}
+  .chip{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+  .chip.supported{background:rgba(63,185,80,.15);color:var(--green)}
+  .chip.contradicted{background:rgba(248,81,73,.15);color:var(--red)}
+  .chip.not_enough_information{background:rgba(110,118,129,.18);color:#c9d1d9}
+  .sev-high{color:var(--red);font-weight:700}
+  .sev-medium{color:var(--amber);font-weight:700}
+  .sev-low{color:var(--green)}
+  .sev-none,.sev-unknown{color:var(--muted)}
+  .bool-true{color:var(--green);font-weight:600}
+  .bool-false{color:var(--red);font-weight:600}
+  .flags{display:flex;gap:4px;flex-wrap:wrap;max-width:200px}
+  .flag{background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:1px 6px;font-size:10px;color:var(--violet)}
+  .flag.mrr{color:var(--amber);border-color:rgba(210,153,34,.4)}
+  .flag.none{color:var(--muted)}
+  .claim{max-width:300px;color:var(--muted);font-size:12px}
+  .claim details summary{cursor:pointer;color:var(--accent);font-size:11px;list-style:none}
+  .claim details[open] summary{margin-bottom:4px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .id{color:var(--accent);font-weight:600}
+  .just{font-size:12px;color:#c9d1d9;max-width:320px}
+  .empty{padding:40px;text-align:center;color:var(--muted)}
+  .drop{border:1px dashed var(--line);border-radius:10px;padding:30px;text-align:center;color:var(--muted);margin:18px}
+  /* lightbox */
+  #lb{position:fixed;inset:0;background:rgba(0,0,0,.85);display:none;align-items:center;justify-content:center;z-index:50;flex-direction:column;gap:10px}
+  #lb img{max-width:90vw;max-height:82vh;border-radius:8px}
+  #lb .cap{color:#fff;font-size:13px}
+  #lb.show{display:flex}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Evidence Review — Predictions Viewer</h1>
+    <div class="sub" id="srcline">loading dataset/output.csv …</div>
+  </div>
+  <div class="controls">
+    <input id="q" placeholder="search claim / id / part …" size="22"/>
+    <select id="fObject"><option value="">all objects</option></select>
+    <select id="fStatus"><option value="">all statuses</option></select>
+    <label class="sub">img base <input id="base" value="dataset/" size="9" style="margin-left:4px"/></label>
+    <button id="reload">Reload</button>
+    <button id="pick">Open CSV…</button>
+    <input id="file" type="file" accept=".csv" style="display:none"/>
+  </div>
+</header>
+
+<div class="stats" id="stats"></div>
+<div class="wrap"><div id="tableHost"></div></div>
+
+<div id="lb"><img id="lbimg" alt=""/><div class="cap" id="lbcap"></div></div>
+
+<script>
+const COLS = ["user_id","image_paths","user_claim","claim_object","evidence_standard_met",
+  "evidence_standard_met_reason","risk_flags","issue_type","object_part","claim_status",
+  "claim_status_justification","supporting_image_ids","valid_image","severity"];
+
+let ROWS = [];
+let sortKey = null, sortDir = 1;
+
+/* ---------- robust CSV parser (RFC4180-ish: quotes, commas, newlines) ---------- */
+function parseCSV(text){
+  const rows=[]; let row=[], field="", i=0, inQ=false;
+  text = text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+  while(i<text.length){
+    const c=text[i];
+    if(inQ){
+      if(c==='"'){ if(text[i+1]==='"'){field+='"';i+=2;continue;} inQ=false;i++;continue; }
+      field+=c;i++;continue;
+    }
+    if(c==='"'){inQ=true;i++;continue;}
+    if(c===','){row.push(field);field="";i++;continue;}
+    if(c==='\n'){row.push(field);rows.push(row);row=[];field="";i++;continue;}
+    field+=c;i++;
+  }
+  if(field.length||row.length){row.push(field);rows.push(row);}
+  if(!rows.length) return [];
+  const head=rows[0];
+  return rows.slice(1).filter(r=>r.length>1||(r.length===1&&r[0]!=="")).map(r=>{
+    const o={}; head.forEach((h,idx)=>o[h.trim()]=(r[idx]??"").trim()); return o;
+  });
+}
+
+function idsToList(v){ return (v||"").split(";").map(s=>s.trim()).filter(s=>s&&s.toLowerCase()!=="none"); }
+function idFromPath(p){ const b=p.split("/").pop()||p; return b.replace(/\.[^.]+$/,""); }
+
+function render(){
+  const base = document.getElementById("base").value;
+  const q = document.getElementById("q").value.toLowerCase();
+  const fo = document.getElementById("fObject").value;
+  const fs = document.getElementById("fStatus").value;
+
+  let rows = ROWS.filter(r=>{
+    if(fo && r.claim_object!==fo) return false;
+    if(fs && r.claim_status!==fs) return false;
+    if(q){
+      const hay=(r.user_claim+" "+r.user_id+" "+r.object_part+" "+r.issue_type+" "+r.risk_flags).toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+
+  if(sortKey){
+    rows.sort((a,b)=>{
+      const x=(a[sortKey]||"").toLowerCase(), y=(b[sortKey]||"").toLowerCase();
+      return x<y?-1*sortDir : x>y?1*sortDir : 0;
+    });
+  }
+
+  // stats
+  const by=(k,v)=>ROWS.filter(r=>r[k]===v).length;
+  const stats=[
+    ["rows",ROWS.length],
+    ["supported",by("claim_status","supported")],
+    ["contradicted",by("claim_status","contradicted")],
+    ["not_enough_info",by("claim_status","not_enough_information")],
+    ["evid. met",ROWS.filter(r=>/^true$/i.test(r.evidence_standard_met)).length],
+    ["valid img",ROWS.filter(r=>/^true$/i.test(r.valid_image)).length],
+    ["flagged",ROWS.filter(r=>idsToList(r.risk_flags).length>0).length],
+  ];
+  document.getElementById("stats").innerHTML = stats.map(([l,n])=>
+    `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`).join("");
+
+  const headers=[
+    ["images","image_paths"],["user","user_id"],["object","claim_object"],
+    ["claim","user_claim"],["status","claim_status"],["issue","issue_type"],
+    ["part","object_part"],["sev","severity"],["evid","evidence_standard_met"],
+    ["valid","valid_image"],["risk flags","risk_flags"],["justification","claim_status_justification"]
+  ];
+  const th=headers.map(([lbl,key])=>{
+    const a = sortKey===key ? (sortDir>0?"▲":"▼") : "";
+    return `<th data-k="${key}">${lbl} <span class="arrow">${a}</span></th>`;
+  }).join("");
+
+  const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+  const body = rows.map(r=>{
+    const support=new Set(idsToList(r.supporting_image_ids));
+    const paths=idsToList(r.image_paths);
+    const thumbs = paths.map(p=>{
+      const id=idFromPath(p);
+      const src=base+p;
+      const cls=support.has(id)?"support":"";
+      return `<img class="${cls}" src="${src}" title="${id}${support.has(id)?' (supporting)':''}"
+              data-cap="${id} — ${esc(r.user_id)}" loading="lazy"
+              onerror="this.outerHTML='<div class=&quot;miss&quot;>'+this.title.split(' ')[0]+'</div>'">`;
+    }).join("") || '<span class="sub">none</span>';
+
+    const flags=idsToList(r.risk_flags);
+    const flagHtml = flags.length? flags.map(f=>{
+      const cls=f==="manual_review_required"?"flag mrr":"flag";
+      return `<span class="${cls}">${f}</span>`;
+    }).join("") : '<span class="flag none">none</span>';
+
+    const sev=(r.severity||"").toLowerCase();
+    const ev=/^true$/i.test(r.evidence_standard_met);
+    const vi=/^true$/i.test(r.valid_image);
+
+    return `<tr>
+      <td><div class="thumbs">${thumbs}</div></td>
+      <td class="mono">${esc(r.user_id)}</td>
+      <td>${esc(r.claim_object)}</td>
+      <td class="claim"><details><summary>view</summary>${esc(r.user_claim)}</details></td>
+      <td><span class="chip ${r.claim_status}">${(r.claim_status||"").replace(/_/g," ")}</span></td>
+      <td>${esc(r.issue_type)}</td>
+      <td>${esc(r.object_part)}</td>
+      <td class="sev-${sev}">${esc(r.severity)}</td>
+      <td class="bool-${ev}">${ev?"✓":"✗"}</td>
+      <td class="bool-${vi}">${vi?"✓":"✗"}</td>
+      <td><div class="flags">${flagHtml}</div></td>
+      <td class="just">${esc(r.claim_status_justification)}
+        ${r.evidence_standard_met_reason?`<div class="sub" style="margin-top:4px">evid: ${esc(r.evidence_standard_met_reason)}</div>`:""}</td>
+    </tr>`;
+  }).join("");
+
+  document.getElementById("tableHost").innerHTML = ROWS.length
+    ? `<table><thead><tr>${th}</tr></thead><tbody>${body}</tbody></table>
+       <div class="sub" style="padding:8px 2px">showing ${rows.length} of ${ROWS.length}</div>`
+    : `<div class="drop">No rows in <span class="mono">output.csv</span> yet.<br>
+        Run <span class="mono">python main.py</span> (with your API key) to generate predictions, then Reload.<br>
+        Or click <b>Open CSV…</b> to load a file manually.</div>`;
+
+  document.querySelectorAll("th").forEach(h=>h.onclick=()=>{
+    const k=h.dataset.k; if(sortKey===k) sortDir*=-1; else {sortKey=k;sortDir=1;} render();
+  });
+  document.querySelectorAll(".thumbs img").forEach(img=>img.onclick=()=>{
+    const lb=document.getElementById("lb");
+    document.getElementById("lbimg").src=img.src;
+    document.getElementById("lbcap").textContent=img.dataset.cap;
+    lb.classList.add("show");
+  });
+}
+
+function ingest(text){
+  ROWS = parseCSV(text);
+  // populate filters
+  const objs=[...new Set(ROWS.map(r=>r.claim_object).filter(Boolean))].sort();
+  const sts=[...new Set(ROWS.map(r=>r.claim_status).filter(Boolean))].sort();
+  document.getElementById("fObject").innerHTML='<option value="">all objects</option>'+objs.map(o=>`<option>${o}</option>`).join("");
+  document.getElementById("fStatus").innerHTML='<option value="">all statuses</option>'+sts.map(s=>`<option value="${s}">${s.replace(/_/g," ")}</option>`).join("");
+  render();
+}
+
+async function load(){
+  try{
+    const res=await fetch("dataset/output.csv",{cache:"no-store"});
+    if(!res.ok) throw new Error(res.status);
+    const t=await res.text();
+    document.getElementById("srcline").textContent="dataset/output.csv — "+(parseCSV(t).length)+" rows";
+    ingest(t);
+  }catch(e){
+    document.getElementById("srcline").textContent="couldn't fetch dataset/output.csv (serve from repo root, or use Open CSV…)";
+    ROWS=[]; render();
+  }
+}
+
+document.getElementById("reload").onclick=load;
+document.getElementById("pick").onclick=()=>document.getElementById("file").click();
+document.getElementById("file").onchange=e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{document.getElementById("srcline").textContent=f.name+" (manual — thumbnails need served mode)";ingest(rd.result);};
+  rd.readAsText(f);
+};
+["q","fObject","fStatus","base"].forEach(id=>document.getElementById(id).addEventListener("input",render));
+document.getElementById("lb").onclick=()=>document.getElementById("lb").classList.remove("show");
+load();
+</script>
+</body>
+</html>

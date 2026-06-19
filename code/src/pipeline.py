@@ -29,6 +29,16 @@ from .prompts import build_stage1_prompt, build_stage2_prompt
 from .schema import OUTPUT_COLUMNS, normalize_record, normalize_risk_flags
 
 
+# Risk tokens that, if present, warrant routing the claim to a human reviewer.
+MANUAL_REVIEW_TRIGGERS = (
+    "possible_manipulation",
+    "non_original_image",
+    "claim_mismatch",
+    "text_instruction_present",
+    "user_history_risk",
+)
+
+
 def image_id_from_path(path: str) -> str:
     return Path(path.strip()).stem
 
@@ -152,11 +162,15 @@ class Pipeline:
         merged_flags = list(dict.fromkeys(s1_flags + [str(f) for f in (s2.get("risk_flags") or [])]))
         if missing:
             merged_flags.append("cropped_or_obstructed")
-        if self.history.is_risky(user_id):
-            merged_flags.append("user_history_risk")
-        # low-trust signals => ask for a human
-        if any(f in merged_flags for f in
-               ("possible_manipulation", "non_original_image", "claim_mismatch")):
+        # Propagate the history file's own risk tokens verbatim (exact signal).
+        for hf in self.history.risk_flags(user_id):
+            if hf not in merged_flags:
+                merged_flags.append(hf)
+        # low-trust signals => ask for a human. Any of these implies a manual
+        # review is warranted; user_history_risk is included because in the
+        # labeled data it always co-occurs with manual_review_required.
+        if any(f in merged_flags for f in MANUAL_REVIEW_TRIGGERS) \
+                and "manual_review_required" not in merged_flags:
             merged_flags.append("manual_review_required")
 
         return self._finalize(

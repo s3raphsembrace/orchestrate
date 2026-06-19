@@ -3,11 +3,14 @@
 
 Usage
 -----
-# 1) produce predictions on the sample (real or --dry-run):
-python run.py --claims dataset/sample_claims.csv --out evaluation/sample_pred.csv
+Most users should just run ``python evaluation/main.py`` (predict + score in one
+step). This module is the scorer underneath, and can also be run standalone:
+
+# 1) produce predictions on the sample (real or --dry-run), from code/:
+python main.py --claims ../dataset/sample_claims.csv --out evaluation/sample_pred.csv
 # 2) score them against the ground-truth columns in sample_claims.csv:
 python -m evaluation.evaluate --pred evaluation/sample_pred.csv \
-                              --truth dataset/sample_claims.csv
+                              --truth ../dataset/sample_claims.csv
 
 Reports per-field accuracy plus a confusion matrix and macro-F1 for the most
 important field, `claim_status`. The truth file is `sample_claims.csv`, which

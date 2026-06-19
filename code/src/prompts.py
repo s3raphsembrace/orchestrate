@@ -188,6 +188,16 @@ Stage-1 already flagged: {", ".join(stage1_flags) if stage1_flags else "none"}
 - Set claim_mismatch if the visible damage is real but on a different part/type
   than claimed. Set wrong_object_part / damage_not_visible as appropriate.
 
+issue_type / severity coupling (follow exactly):
+- If the claimed part is clearly visible and INTACT (so you are contradicting a
+  damage claim), set issue_type=none and severity=none, and still name the
+  claimed object_part.
+- If the relevant area cannot be assessed (not_enough_information: wrong angle,
+  obstructed, contents not shown), set issue_type=unknown and severity=unknown.
+- When the claim IS supported, severity scales with the damage: cosmetic
+  scuff/hairline=low; a clear dent / single cracked component / stain=medium;
+  shattered glass, structural or multi-panel damage, soaked/destroyed=high.
+
 Allowed values — use the CLOSEST match only:
 - issue_type: {issue_vocab}
 - object_part ({claim_object}): {part_vocab}

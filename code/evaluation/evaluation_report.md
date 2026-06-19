@@ -2,21 +2,32 @@
 
 This document covers (1) how the system is evaluated against the labeled sample
 set and (2) the operational cost / latency / rate-limit analysis required by the
-brief. The pipeline prints real per-run usage to stderr (`run.py` summary), so
-the numbers below are a *model* you can replace with measured values once the
-dataset is wired in.
+brief. The pipeline prints real per-run usage to stderr, so the operational
+numbers below are a *model* you can replace with measured values after a run.
 
 ---
 
 ## 1. How to evaluate
 
-```bash
-# Predict on the labeled sample (real model, or add --dry-run for plumbing only)
-python run.py --claims dataset/sample_claims.csv --out evaluation/sample_pred.csv
+Run from the `code/` directory. One command predicts on the labeled sample and
+scores the result:
 
-# Score predictions vs. the expected-output columns inside sample_claims.csv
+```bash
+# plumbing only (no API key / network):
+python evaluation/main.py --dry-run
+
+# real evaluation (needs GEMINI_API_KEY):
+python evaluation/main.py
+```
+
+`evaluation/main.py` is the contract entry point (AGENTS.md §6). Under the hood
+it runs the pipeline, writes `evaluation/sample_pred.csv`, and calls the scorer
+in `evaluation/evaluate.py`. You can also score an existing prediction file
+directly:
+
+```bash
 python -m evaluation.evaluate --pred evaluation/sample_pred.csv \
-                              --truth dataset/sample_claims.csv
+                              --truth ../dataset/sample_claims.csv
 ```
 
 `evaluate.py` reports:
@@ -29,6 +40,36 @@ python -m evaluation.evaluate --pred evaluation/sample_pred.csv \
   supported / contradicted / not_enough_information is the core decision.
 
 Free-text justifications are not exact-matched; spot-check them manually.
+
+### Sample-set composition (20 labeled rows)
+
+- Objects: car ×8, laptop ×6, package ×6.
+- `claim_status`: supported ×12, contradicted ×5, not_enough_information ×3.
+- `severity`: medium ×11, low ×3, none ×2, unknown ×3.
+- 10/20 rows carry at least one risk flag; `manual_review_required` and
+  `user_history_risk` are the most common.
+
+This is small, so treat per-field accuracy as directional and always read the
+confusion matrix rather than a single headline number.
+
+### Strategy comparison (required: ≥2 configurations)
+
+| # | Strategy | What changes | Trade-off |
+|---|---|---|---|
+| A | **Single-call, generic prompt** | One model call per claim; one prompt for all three objects; history risk left to the model. | Cheapest in calls, but `object_part`/`issue_type` blur across objects and quality/junk images still pay full price. Baseline. |
+| B | **Two-stage + object-specific prompts (chosen)** | Cheap Stage-1 validity gate short-circuits junk; Stage-2 uses an object-specific part/issue vocabulary; history flags derived deterministically (see below). | Crisper part/issue values and big savings on unusable submissions, at one extra cheap call on valid claims. |
+| — | **Stage-2 model swap** | B with `models.stage2 = gemini-2.5-pro` instead of `flash`. | Use only if the sample confusion matrix shows `flash` losing hard supported/contradicted calls; ~4× the Stage-2 cost (see §2.3). |
+
+**Deterministic history flags (key accuracy fix).** The `user_history_risk` and
+`manual_review_required` flags are *not* re-derived from raw claim counts — the
+dataset already encodes the intended signal in the `history_flags` column. The
+pipeline propagates those tokens verbatim and then adds `manual_review_required`
+whenever a low-trust visual flag (`claim_mismatch`, `non_original_image`,
+`possible_manipulation`, `text_instruction_present`) or `user_history_risk` is
+present. On the 20-row sample this reproduces the labeled history-driven flags
+**exactly (20/20)**, including the user whose `history_flags` is
+`manual_review_required` rather than `user_history_risk` — a case a counts-based
+heuristic gets wrong. The visual flags themselves still come from the model.
 
 ### Tuning loop
 1. Run on the sample, read the confusion matrix.
@@ -118,7 +159,8 @@ API** (~50% off, 24h async) roughly halves either figure for the offline test ru
 
 ### 2.6 Reproducing the real numbers
 
-`run.py` prints actual calls, tokens, images, and cache hits per run:
+Both entry points (`main.py` and `evaluation/main.py`) print actual calls,
+tokens, images, and cache hits to stderr per run:
 
 ```
 Images processed: 912 | cache hits: 0
