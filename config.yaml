@@ -1,0 +1,60 @@
+# =========================================================================
+# Multi-Modal Evidence Review — runtime configuration
+# =========================================================================
+# Everything that affects cost, latency, or model choice lives here so the
+# pipeline can be re-tuned without touching code.
+
+models:
+  # Stage 1 is a cheap, fast validity gate run on EVERY image. Use the
+  # cheapest capable vision model.
+  stage1: "gemini-2.5-flash-lite"
+  # Stage 2 is the expensive full claim analysis, only run when Stage 1
+  # passes (or is marginal). Flash is a good cost/quality balance; switch to
+  # "gemini-2.5-pro" if accuracy on the sample set demands it.
+  stage2: "gemini-2.5-flash"
+
+generation:
+  # Deterministic outputs make evaluation reproducible and caching effective.
+  temperature: 0.0
+  # We force JSON so parsing is reliable.
+  response_mime_type: "application/json"
+  stage1_max_output_tokens: 512
+  stage2_max_output_tokens: 1024
+
+# ---- Pricing (USD per 1,000,000 tokens). Defaults sourced June 2026; ----
+# ---- override here if Google changes pricing. Used only by the cost  ----
+# ---- estimator in the operational report, never by the pipeline.     ----
+pricing:
+  gemini-2.5-flash-lite:
+    input_per_mtok: 0.10
+    output_per_mtok: 0.40
+  gemini-2.5-flash:
+    input_per_mtok: 0.30
+    output_per_mtok: 2.50
+  gemini-2.5-pro:
+    input_per_mtok: 1.25
+    output_per_mtok: 10.00
+  # Approx tokens Gemini bills per image. A small/standard image bills ~258
+  # tokens; larger images are tiled. We use a conservative single-tile value
+  # and surface it as an assumption in the report.
+  tokens_per_image: 258
+
+# ---- Concurrency / rate-limit safety -------------------------------------
+runtime:
+  max_workers: 4            # parallel claims in flight
+  max_images_per_claim: 6   # hard cap to bound cost on pathological rows
+  # Downscale long edge before upload. Smaller images = fewer image tokens
+  # and faster uploads, with negligible loss for damage detection.
+  image_max_long_edge_px: 1024
+  # Stage-1 short-circuit: if the gate is this confident the image is
+  # unusable, skip Stage 2 entirely.
+  short_circuit_on_invalid: true
+
+cache:
+  enabled: true
+  dir: ".cache"             # keyed on (model, prompt_hash, image_hash)
+
+retry:
+  max_attempts: 5
+  initial_backoff_s: 2.0
+  max_backoff_s: 60.0
