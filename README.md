@@ -1,109 +1,161 @@
-# Multi-Modal Evidence Review
+# HackerRank Orchestrate
 
-A two-stage, Gemini-powered pipeline that decides whether submitted images
-**support**, **contradict**, or give **not_enough_information** for a damage
-claim about a `car`, `laptop`, or `package`.
+Starter repository for the **HackerRank Orchestrate** 24-hour hackathon.
 
-## Why two stages
+Build a system that verifies visual evidence for damage claims across three object types: **cars**, **laptops**, and **packages**.
 
-1. **Stage 1 — validity gate** (`gemini-2.5-flash-lite`, cheap): one fast pass
-   over the whole image set. Is it blurry, the wrong object, low-light,
-   obstructed, a screenshot, or carrying injected text instructions? This makes
-   `valid_image` / `risk_flags` reliable and **gates the expensive stage** — junk
-   submissions never burn Stage-2 tokens.
+Your system will receive claim conversations, one or more submitted images, user claim history, and minimum evidence requirements. It must decide whether the submitted images support the claim, contradict it, or do not provide enough information.
 
-2. **Stage 2 — full analysis** (`gemini-2.5-flash`, only if Stage 1 passes):
-   given the claim, the matching `evidence_requirements` rubric, a user-history
-   summary, and the usable images, it produces the substantive fields.
-   **Object-specific prompts** matter here — "crack" means something different on
-   a windshield, a laptop hinge, and a cardboard box, so each object has its own
-   part vocabulary and guidance (`src/prompts.py`). A generic prompt yields mushy
-   `object_part` / `issue_type`.
+Read [`problem_statement.md`](./problem_statement.md) for the full task spec, input/output schema, and allowed values.
 
-Then a **merge/normalize** step unions Stage-1 + Stage-2 risk flags, adds a
-deterministic `user_history_risk` flag, adds `manual_review_required` for
-low-trust results, and forces every field into the spec's closed vocabulary
-(`src/schema.py`).
+---
 
-History is used as **risk context only** — it never, on its own, flips a
-visually obvious decision (per the brief).
+## Contents
 
-## Layout
+1. [Repository layout](#repository-layout)
+2. [What you need to build](#what-you-need-to-build)
+3. [Where your code goes](#where-your-code-goes)
+4. [Quickstart](#quickstart)
+5. [Evaluation](#evaluation)
+6. [Chat transcript logging](#chat-transcript-logging)
+7. [Submission](#submission)
+8. [Judge interview](#judge-interview)
 
-```
-evidence_review/
-├── run.py                     # entry point: claims.csv -> output.csv
-├── config.yaml                # models, pricing, concurrency, cache, retry
-├── requirements.txt
-├── .env.example               # GEMINI_API_KEY
-├── src/
-│   ├── config.py              # config loader
-│   ├── schema.py              # output columns + closed-vocab normalization
-│   ├── history.py             # user-history summary + risk derivation
-│   ├── evidence.py            # evidence-requirements rubric injection
-│   ├── prompts.py             # Stage-1 gate + object-specific Stage-2 prompts
-│   ├── gemini_client.py       # Gemini wrapper: image prep, retry, usage metering
-│   ├── cache.py               # deterministic disk cache
-│   └── pipeline.py            # two-stage orchestration + batch runner
-└── evaluation/
-    ├── evaluate.py            # score vs. labeled sample (accuracy, F1, confusion)
-    └── evaluation_report.md   # operational analysis (cost/latency/TPM-RPM)
+---
+
+## Repository layout
+
+```text
+.
+├── AGENTS.md                         # Rules for AI coding tools + transcript logging
+├── problem_statement.md              # Full task description and I/O schema
+├── README.md                         # You are here
+├── code/                             # Build your solution here
+│   ├── main.py                       # Suggested terminal entry point
+│   └── evaluation/
+│       └── main.py                   # Suggested evaluation entry point
+└── dataset/
+    ├── sample_claims.csv             # Inputs + expected outputs for development
+    ├── claims.csv                    # Inputs only; run your system on these rows
+    ├── user_history.csv              # Historical claim counts and risk context
+    ├── evidence_requirements.csv     # Minimum image evidence requirements
+    └── images/
+        ├── sample/                   # Images referenced by sample_claims.csv
+        └── test/                     # Images referenced by claims.csv
 ```
 
-## Setup
+---
+
+## What you need to build
+
+A system that, for each row in `dataset/claims.csv`, produces one row in `output.csv`.
+
+Input fields:
+
+| Column | Meaning |
+|---|---|
+| `user_id` | User submitting the claim; use this to look up `dataset/user_history.csv` |
+| `image_paths` | One or more submitted image paths, separated by semicolons |
+| `user_claim` | Chat transcript describing the issue |
+| `claim_object` | `car`, `laptop`, or `package` |
+
+Required output fields:
+
+| Column | Meaning |
+|---|---|
+| `evidence_standard_met` | Whether the image set is sufficient to evaluate the claim |
+| `evidence_standard_met_reason` | Short reason for the evidence decision |
+| `risk_flags` | Semicolon-separated risk flags, or `none` |
+| `issue_type` | Visible issue type |
+| `object_part` | Relevant object part |
+| `claim_status` | `supported`, `contradicted`, or `not_enough_information` |
+| `claim_status_justification` | Concise explanation grounded in the image evidence |
+| `supporting_image_ids` | Image IDs supporting the decision, or `none` |
+| `valid_image` | Whether the image set is usable for automated review |
+| `severity` | `none`, `low`, `medium`, `high`, or `unknown` |
+
+Hard requirements:
+
+- Must read the provided CSV files and local images.
+- Must produce `output.csv` with the exact schema in `problem_statement.md`.
+- Must include an evaluation workflow
+- Must avoid hardcoded test labels or file-specific answers.
+
+Beyond that you are free to bring your own approach: VLMs, LLMs, structured prompting, rule layers, batching, caching, evaluation pipelines, model comparison, or anything else.
+
+---
+
+## Where your code goes
+
+All of your work belongs in [`code/`](./code/). The repo ships with empty starter files that you can grow into your full solution.
+
+Suggested conventions:
+
+- Put your main runnable solution in `code/main.py`, or document your own entry point clearly.
+- Put evaluation code under `code/evaluation/` or an `evaluation/` folder included in your final `code.zip`.
+- Write final predictions to `output.csv`.
+
+---
+
+## Quickstart
+
+Clone this repository:
 
 ```bash
-pip install -r requirements.txt
-cp .env.example .env          # add your key, or:  export GEMINI_API_KEY=...
+git clone git@github.com:interviewstreet/hackerrank-orchestrate-june26.git
+cd hackerrank-orchestrate-june26
 ```
 
-Place the provided data under `dataset/` (or point the flags elsewhere):
+You are free to use any language or runtime. Python, JavaScript, and TypeScript are all reasonable choices.
 
-```
-dataset/
-├── claims.csv  sample_claims.csv  user_history.csv  evidence_requirements.csv
-└── images/sample/...  images/test/...
-```
+---
 
-## Run
+## Evaluation
 
-```bash
-# Smoke-test the plumbing with NO key and NO network (stubbed model):
-python run.py --claims dataset/sample_claims.csv --out /tmp/dry.csv --dry-run
+The evaluation report should include:
 
-# Evaluate on the labeled sample:
-python run.py --claims dataset/sample_claims.csv --out evaluation/sample_pred.csv
-python -m evaluation.evaluate --pred evaluation/sample_pred.csv \
-                              --truth dataset/sample_claims.csv
+- metrics on `dataset/sample_claims.csv`
+- at least two strategies, prompts, or model configurations compared
+- the final strategy used for `output.csv`
+- operational analysis covering model calls, token usage, image usage, approximate cost, runtime, and TPM/RPM considerations
 
-# Produce final predictions for the test set:
-python run.py --claims dataset/claims.csv --out output.csv
-```
+---
 
-`output.csv` is written with exactly the 14 required columns, in order.
+## Chat transcript logging
 
-## Cost / latency at a glance
+This repo ships with an `AGENTS.md` that modern AI coding tools may read. It instructs the tool to append conversation turns to a shared log file:
 
-~**$0.001 per claim** with the default Flash-Lite + Flash split (~$0.50 for a
-500-claim set); ~11 min wall-clock at 4 workers. Full breakdown, pricing
-assumptions, and TPM/RPM strategy in
-[`evaluation/evaluation_report.md`](evaluation/evaluation_report.md). `run.py`
-prints actual calls/tokens/images per run.
+| Platform | Path |
+|---|---|
+| macOS / Linux | `$HOME/hackerrank_orchestrate/log.txt` |
+| Windows | `%USERPROFILE%\hackerrank_orchestrate\log.txt` |
 
-## Tuning knobs (all in `config.yaml`)
+You will upload this log as your chat transcript at submission time. The chat transcript means your conversation with the AI coding tool you used to build the system. It is not the runtime logs, reasoning trace, or conversation history produced by the claim-verification agent you are building.
 
-- `models.stage2` → swap to `gemini-2.5-pro` for harder cases.
-- `runtime.short_circuit_on_invalid` → trade Stage-2 savings vs. recall.
-- `runtime.max_workers` → throughput vs. rate limits.
-- `runtime.image_max_long_edge_px` → image-token cost vs. detail.
-- `cache.enabled` → free re-runs while iterating.
+If you use multiple AI tools, include the relevant conversation logs from all of them in the same transcript file. Separate each tool's section with a clear divider and label it with the tool name.
 
-## Notes / assumptions
+Never paste secrets into the chat. If secrets are needed, use environment variables.
 
-- Built against the documented schemas; column names are read from the CSV
-  headers, so minor naming differences are tolerated for inputs.
-- Gemini pricing in `config.yaml` reflects June 2026 published rates — update if
-  Google changes them.
-- The closed-vocabulary normalizer guarantees outputs stay within the allowed
-  value lists even if the model returns a near-miss token.
-```
+---
+
+## Submission
+
+Submit the following files as instructed by HackerRank:
+
+1. **Code zip**: zip your runnable solution, README, prompts/configs, and evaluation folder. Exclude virtualenvs, `node_modules`, build artifacts, and unnecessary generated files.
+2. **Predictions CSV**: your final `output.csv` for all rows in `dataset/claims.csv`.
+3. **Chat transcript**: the `log.txt` from the path in [Chat transcript logging](#chat-transcript-logging).
+
+Before submitting, confirm:
+
+- `output.csv` has one row per row in `dataset/claims.csv`.
+- `output.csv` has the exact required columns in the exact required order.
+- Your evaluation files are included in `code.zip`.
+
+---
+
+## Judge interview
+
+After submission, the AI Judge may ask about your approach, implementation decisions, model usage, evaluation strategy, and how you used AI while building the solution.
+
+Be prepared to explain your solution in detail.
